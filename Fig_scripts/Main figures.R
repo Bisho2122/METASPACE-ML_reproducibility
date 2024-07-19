@@ -8,8 +8,10 @@ library(RColorBrewer)
 library(DataExplorer)
 library(cowplot)
 library(cutpointr)
+library(M3C)
 
 source("../Scripts/Final_figures_functions.R")
+source("../Scripts/modified_M3C_umap_function.R")
 "%nin%" <- Negate("%in%")
 
 # Load data ---------------------------------------------------------------
@@ -33,15 +35,12 @@ eval_ions = readRDS("../Data/Bulk_validation/all_FDR_annots_new_model_testing_w_
 eval_df_bulk = readRDS("../Data/Bulk_validation/all_eval_new_model_testing.rds")
 annot_df_bulk = readRDS("../Data/Bulk_validation/all_FDR_annots_new_model_testing.rds")
 
-#TODO Add link from Biostudies to metrics file
-tmp = tempfile()
-download.file(url = "link_to_metrics_file", destfile = tmp)
-raw_res_bulk = read.csv(tmp)
+raw_res_bulk = read.csv("../Data/Bulk_validation/CoreMetabolome-v3_metrics_df_w_pred_score.csv.gz")
 
 #TODO Add link from Biostudies to feat_imp file
 tmp = tempfile()
 download.file(url = "link_to_feat_imp", destfile = tmp)
-animal_feat_imp_dss = read.csv(tmp)
+animal_feat_imp = read.csv(tmp)
 
 chosen_c_size = 30
 
