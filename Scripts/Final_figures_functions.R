@@ -1202,7 +1202,67 @@ make_data_fig_J = function(annot_w_ions_df,
   return(p)
 } # 10x19 landscape
 
+plot_enrich_res_global = function(enrich_result,use_FE = T, min_dss_prop = 0.1){
+  plot_data = enrich_result %>% dplyr::filter(pval < 0.05, TP >= 3)
+  n_sig_dss = length(unique(plot_data$ds_id))
+  if (use_FE){
+    plot_data$OR = log2(plot_data$FE)
+  }
+  else{
+    plot_data$OR = log2(plot_data$OR)
+  }
 
+  filtered = plot_data %>%
+    dplyr::group_by(term) %>%
+    dplyr::summarise(n_ds = n(), avg_LOR = mean(OR))
+  filtered = filtered[which(filtered$n_ds >= ceiling(min_dss_prop * n_sig_dss)),]
+  filtered = filtered[which(filtered$term != ""),]
+  #filtered = filtered[which(abs(filtered$avg_LOR) >= 1),]
+
+  x = HMDB_taxo_info[which(HMDB_taxo_info$sub_class %in% filtered$term),]
+  x = x %>% dplyr::select(class, sub_class)
+  x = x[!duplicated(x),]
+  filtered = filtered %>% left_join(x, by = c("term" = "sub_class"))
+
+  plot_data = plot_data[which(plot_data$term %in% filtered$term),]
+  plot_data = plot_data %>%
+    left_join(filtered) %>%
+    select(term, class, ds_id, n_ds, OR)
+
+  plot_data = plot_data[order(plot_data$class),]
+
+  cols = RColorBrewer::brewer.pal(length(unique(plot_data$class)),"Paired")
+
+  plot_data$myaxis = paste0(plot_data$term, " (", plot_data$n_ds, "/",
+                            n_sig_dss,")")
+  group_ordered = with(plot_data, reorder(myaxis, OR, median))
+
+  plot_data$myaxis = factor(plot_data$myaxis, levels = levels(group_ordered))
+
+  p = plot_data %>%
+    ggplot(aes(x=myaxis, y=OR, fill=class)) +
+    # geom_violin(width=1.4) +
+    geom_boxplot(width= 1, alpha=0.6) +
+    # geom_jitter(size= 0.5, alpha=0.5) +
+    scale_fill_manual(values= cols) +
+    scale_y_continuous(n.breaks = 16) +
+    theme_pubr(legend = "bottom") +
+    theme(plot.title = element_text(size=18, hjust = 0.5),
+          plot.subtitle = element_text(size=16, hjust = 0.5),
+          axis.title.y = element_blank(),
+          axis.title.x = element_text(size=18, hjust = 0.5),
+          legend.text = element_text(size=18),
+          legend.title = element_text(size = 16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18)) +
+    coord_flip() +
+    geom_hline(yintercept =  0, linetype="dashed", color = "red") +
+    ggtitle("Enrichment of Metabolite classes",
+            subtitle = "Annotations only captured by METASPACE-ML") +
+    ylab("Log2 Fold Enrichment")
+
+  return(p)
+}
 # Nat comms Data manipulation functions ----------------------------------------------
 prepare_plot_df = function(eval_df, annot_df,
                            data_type = c("Training", "Testing"),
@@ -2967,7 +3027,7 @@ mismatch_df = function (x, y, on = NULL)
     on <- intersect(names(x), names(y))
     message("Matching on: ", paste(on, collapse = ", "))
   }
-  keys <- join.keys(x, y, on)
+  keys <- plyr::join.keys(x, y, on)
   x[keys$x %nin% keys$y, , drop = FALSE]
 }
 
