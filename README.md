@@ -1,6 +1,6 @@
 # METASPACE-ML_reproducibility
 
-Author&Maintainer: Bishoy Wadie [bishoy.wadie\@embl.de](mailto:bishoy.wadie@embl.de){.email}
+Author&Maintainer: Bishoy Wadie [bishoy.wadie@embl.de](mailto:bishoy.wadie@embl.de)
 
 Scripts to reproduce the figures for METASPACE-ML [paper](https://www.biorxiv.org/content/10.1101/2023.05.29.542736v2)
 
