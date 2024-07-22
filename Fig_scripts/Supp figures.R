@@ -44,9 +44,8 @@ annot_df_bulk = readRDS("../Data/Bulk_validation/all_FDR_annots_new_model_testin
 raw_res_bulk = read.csv("../Data/Bulk_validation/CoreMetabolome-v3_metrics_df_w_pred_score.csv.gz")
 
 
-#TODO Add link from Biostudies to plant feat_imp file
 tmp = tempfile()
-download.file(url = "link_to_feat_imp", destfile = tmp)
+download.file(url = "https://www.ebi.ac.uk/biostudies/files/S-BIAD1283/Biostudies_files/Plant_Testing_Eval_feature_importance_per_context.csv", destfile = tmp)
 plant_feat_imp = read.csv(tmp)
 
 chosen_c_size = 30
