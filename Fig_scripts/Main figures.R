@@ -428,7 +428,7 @@ Fig_8A = PR_Data %>% ggpaired(cond1 = "METASPACE-ML", cond2 = "MSM",
         legend.title = element_blank(),
         strip.text = element_text(size = 20),
         strip.background = element_rect(fill = "white")) +
-  stat_compare_means(aes(group = condition), label = "p.signif" ,paired = F,
+  stat_compare_means(aes(group = condition), label = "p.format" ,paired = F,
                      size = 8, label.x.npc = "center", label.y.npc = 0.95) +
   theme(legend.position = "none")
 
@@ -460,7 +460,7 @@ TPR = round((Fig_8C_data[1,1] / sum(Fig_8C_data[,1])),2) * 100
 dimnames( Fig_8C_data ) <- list(`METASPACE-ML` = c("Predicted", "Not predicted"),
                           `LC-MS/MS` = c("Found", "Not found"))
 fourfoldplot(Fig_8C_data,
-             color = c("#B22222", "#2E8B57"),
+             color = c("#1E90FF", "#FF8C00"),
              main = paste0("TPR : ",TPR ,"%"),
              conf.level = 0, std = "all.max",space = 0.2) +
   text(-0.2,0.2, "TP", cex=1.5) +
@@ -479,7 +479,7 @@ TPR = round((Fig_8D_data[1,1] / sum(Fig_8D_data[,1])),2) * 100
 dimnames( Fig_8D_data ) <- list(`METASPACE-ML_only` = c("Predicted", "Not predicted"),
                           `LC-MS/MS` = c("Found", "Not found"))
 fourfoldplot(Fig_8D_data,
-             color = c("#B22222", "#2E8B57"),
+             color = c("#1E90FF", "#FF8C00"),
              main = paste0("TPR : ",TPR ,"%"),
              conf.level = 0, std = "all.max",space = 0.2) +
   text(-0.2,0.2, "TP", cex=1.5) +
@@ -497,7 +497,7 @@ TPR = round((Fig_8E_data[1,1] / sum(Fig_8E_data[,1])),2) * 100
 dimnames( Fig_8E_data ) <- list(`MSM_only` = c("Predicted", "Not predicted"),
                           `LC-MS/MS` = c("Found", "Not found"))
 fourfoldplot(Fig_8E_data,
-             color = c("#B22222", "#2E8B57"),
+             color = c("#1E90FF", "#FF8C00"),
              main = paste0("TPR : ",TPR ,"%"),
              conf.level = 0, std = "all.max",space = 0.2) +
   text(-0.2,0.2, "TP", cex=1.5) +
