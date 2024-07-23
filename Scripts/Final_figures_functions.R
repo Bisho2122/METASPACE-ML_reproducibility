@@ -483,7 +483,7 @@ plot_intensity_boxplot = function(intens_df){
     ylab("Median(Log10(Intensity))") +
     xlab("") +
     geom_signif(comparisons = sig_comparison_list,
-                map_signif_level = sigFunc, na.rm = T,textsize = 8,
+                map_signif_level = F, na.rm = T,textsize = 8,
                 y_position = c(10,8, 9, 10))
 
 }
@@ -619,650 +619,6 @@ calc_reliability_score = function(annot_ions_df){
   return(final)
 }
 
-# Main_figures functions ------------------------------------------------------------
-make_data_fig_A = function(ds_ids = NULL){
-  training_ds = datasets
-  if (!is.null(ds_ids)){
-    training_ds = training_ds[which(training_ds$ds_id %in% ds_ids),]
-  }
-  meta = metaspace_metadata
-  colnames(meta)[1] = "ds_id"
-  meta = meta[,c(1,3,4,5)]
-  training_ds = dplyr::left_join(training_ds, meta)
-  if (is.null(ds_ids)){
-    train_ds = training_ds[which(training_ds$top200 == "TRUE"),]
-  }
-  else{
-    train_ds = training_ds
-  }
-  train_ds = train_ds %>% dplyr::left_join(training_mz_range)
-  train_ds$mz_range[is.na(train_ds$mz_range)] = "High"
-  rNames = train_ds$ds_id
-  train_ds = train_ds %>% dplyr::select(is_public, polarity, source, analyzer,
-                                        rp_range, mz_range,Sample_Information.Organism) %>%
-    as.data.frame()
-  rownames(train_ds) = rNames
-  colnames(train_ds) = c("Public", "Polarity", "Ionization Source", "Analyzer",
-                         "Resolving power range", "mz range" ,"Organism")
-  train_ds$`Resolving power range` = str_to_title(train_ds$`Resolving power range`)
-  #colnames(train_ds)[which(colnames(train_ds) == "Sample_Information.Organism")] = "Organism"
-  train_ds$`Ionization Source` = ifelse(train_ds$`Ionization Source` %in% c("MALDI","DESI"), train_ds$`Ionization Source`, "Other")
-  for (i in 1:nrow(train_ds)){
-    if (train_ds$Organism[i] %nin% c("Rattus norvegicus (rat)", "Mus musculus (mouse)","Homo sapiens (human)","Mouse ")){
-      next()
-    }
-    train_ds$Organism[i] = switch(train_ds$Organism[i],"Rattus norvegicus (rat)" = "Rat",
-                                  "Mus musculus (mouse)" = "Mouse",
-                                  "Homo sapiens (human)" = "Human",
-                                  "Mouse " = "Mouse")
-  }
-  train_ds$Organism = ifelse(train_ds$Organism %in% c("Mouse","Human","Rat"), train_ds$Organism, "Other")
-  train_ds$Public = ifelse(train_ds$Public == "TRUE", "True", "False")
-
-  train_ds_long = train_ds %>% ggsankey::make_long(Public, Polarity, `Ionization Source`,
-                                                   Analyzer, `Resolving power range`,`mz range` ,
-                                                   Organism)
-
-  cols = c(brewer.pal(12, "Paired"), brewer.pal(5, "Set3")[-3])
-
-  # for(col in colnames(train_ds_long)){
-  #   train_ds_long[[col]] = addline_format(train_ds_long[[col]])
-  # }
-
-  node_levels = c("True", "False", "Positive", "High", "Negative", "Low",
-                  "Medium", "MALDI", "TOF", "Rat", "DESI", "Other", "Orbitrap",
-                  "Human", "FTICR", "Mouse")
-  names(cols) = node_levels
-
-  p = ggplot(train_ds_long, aes(x = x, next_x = next_x, node = node, next_node = next_node,
-                                fill = factor(node, levels = node_levels), label = node)) +
-    geom_alluvial(flow.alpha = .6, space = 1) +
-    geom_alluvial_text(size = 10, color = "Black", angle = 90) +
-    scale_fill_manual(values = cols) +
-    #scale_fill_brewer(palette = "Paired", type = "qual") +
-    theme_alluvial(base_size = 20) +
-    labs(x = NULL) +
-    theme(legend.position = "none",
-          plot.title = element_text(hjust = .5),
-          axis.text.x = element_text(size = 30, color = "Black"),
-          axis.title.y = element_text(size = 30, color = "Black"),
-          axis.text.y = element_text(size = 30, color = "Black")) +
-    scale_x_discrete(labels = addline_format(colnames(train_ds))) +
-    ggtitle("Training Datasets") +
-    ylab("Number of Datasets")
-
-  return(p)
-} # 15x20 landscape
-make_data_fig_B = function(eval_df,model_param_comb = NULL,
-                           metric_type = c("MAP", "nDCG"), use_AP = F){
-  if (!is.null(model_param_comb)){
-    eval_df = eval_df %>% dplyr::filter(model_params == model_param_comb)
-  }
-  if (use_AP & !any(str_detect(colnames(eval_df), "group"))){
-    stop("eval_df should contain group name")
-  }
-  else if (use_AP & any(str_detect(colnames(eval_df), "group"))){
-    plot_data = eval_df
-    if (any(str_detect(colnames(eval_df), "AP"))){
-      colnames(eval_df)[str_which(colnames(eval_df), "AP")] = "metric_value"
-    }
-    plot_data$metric_type = "MAP"
-  }
-  else{
-    plot_data = eval_df %>%
-      dplyr::group_by(cv_split, metric_type, score_type) %>%
-      dplyr::summarise(metric_value = mean(metric_value)) %>%
-      as.data.frame()
-  }
-  p = plot_eval_metrics_boxplot(df = plot_data, metric_type = metric_type)
-  return(p)
-} #6x8 portrait
-
-make_data_fig_C = function(eval_df,model_param_comb = NULL, use_AP = F,
-                           return_pval = F){
-  # PR_Data = PR_results$AUC_per_ds$data
-  # PR_Data = PR_Data %>% spread(key = score_type, value = AUC)
-  # PR_Data$Delta = ifelse(PR_Data$CatBoost > PR_Data$MSM, "Higher", "Lower")
-  # colnames(PR_Data)[which(colnames(PR_Data) == "CatBoost")] = "METASPACE-ML"
-  if (!is.null(model_param_comb)){
-    eval_df = eval_df %>% dplyr::filter(model_params == model_param_comb)
-  }
-  if (any(str_detect(colnames(eval_df), "AP"))){
-    colnames(eval_df)[str_which(colnames(eval_df), "AP")] = "metric_value"
-  }
-
-  PR_Data = eval_df
-  PR_Data = PR_Data %>%
-    tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",") %>%
-    dplyr::group_by(ds_id, model_params,score_type) %>%
-    dplyr::summarise(metric_value = mean(metric_value)) %>%
-    as.data.frame()
-  PR_Data = PR_Data %>% spread(key = score_type, value = metric_value)
-  PR_Data$Delta = ifelse(PR_Data$`METASPACE-ML` > PR_Data$MSM, "Higher", "Lower")
-
-  stat_data = PR_Data[which(PR_Data$Delta == "Higher"),]
-  paired_wilcox = wilcox.test(stat_data$`METASPACE-ML`,stat_data$MSM, paired = T,
-                              conf.int = T)
-  unpaired_wilcox = wilcox.test(stat_data$`METASPACE-ML`,stat_data$MSM, paired = F,
-                              conf.int = T)
-  if (return_pval){
-    return(list("Paired" = paired_wilcox,
-                "Indep" = unpaired_wilcox))
-  }
-
-  p = PR_Data %>% ggpaired(cond1 = "METASPACE-ML", cond2 = "MSM",
-                           color = "condition", linetype = "dotted",
-                           line.size = 0.5, point.size = 2,
-                           palette = c("#A6CEE3", "#FB9A99"),
-                           ggtheme = theme_pubr(legend = "bottom"),
-                           facet.by = "Delta",line.color = "#F4C08B",
-                           xlab = FALSE, ylab = "PR-AUC", title = "Paired PR-AUC per dataset",
-                           short.panel.labs = T) +
-    theme(plot.title = element_text(hjust = 0.5),
-          axis.text.x = element_text(size = 20),
-          axis.text.y = element_text(size = 20),
-          axis.title.y = element_text(size = 20),
-          legend.text = element_text(size = 20),
-          legend.title = element_blank(),
-          strip.text = element_text(size = 20),
-          strip.background = element_rect(fill = "white")) +
-    stat_compare_means(aes(group = condition), label = "p.signif" ,paired = F,
-                       size = 8, label.x.npc = "center")
-
-  ggpar(p, legend.title = list(color = "Score_type"),
-        x.text.angle = 0)
-
-} #10x8 portrait
-
-make_data_fig_D = function(eval_df_testing,model_param_comb = NULL,
-                           metric_type = c("MAP", "nDCG"), add_err_bar = T){
-  if (!is.null(model_param_comb)){
-    eval_df_testing = eval_df_testing %>% dplyr::filter(model_params == model_param_comb)
-  }
-  if (any(str_detect(colnames(eval_df_testing), "AP"))){
-    colnames(eval_df_testing)[str_which(colnames(eval_df_testing), "AP")] = "metric_value"
-  }
-  plot_data = eval_df_testing
-  colnames(plot_data)[which(colnames(plot_data) == "metric_value")] = "AP"
-  plot_data = plot_data[!is.nan(plot_data$AP),]
-  all_db = plot_data %>%
-    group_by(score_type) %>%
-    dplyr::summarise(metric_value = mean(AP),
-                     metric_val_sd = sd(AP)) %>%
-    dplyr::mutate(db = "All\ndatabases")
-  per_db = plot_data %>%
-    group_by(score_type, db) %>%
-    dplyr::summarise(metric_value = mean(AP),
-                     metric_val_sd = sd(AP))
-  plot_data = rbind.data.frame(all_db, per_db)
-  plot_data$db = sub("-.*", "", plot_data$db)
-  p = plot_eval_metrics_testing(df = plot_data, add_err_bar = add_err_bar)
-  return(p)
-} #12x10 portrait
-
-make_data_fig_E = function(annot_df, FDR_pct = 10){
-  plot_data = annot_df
-  plot_data = plot_data %>%
-    dplyr::select(group_name, FDR_pct, msm_fdr_annots, pred_fdr_annots, db) %>%
-    tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",") %>%
-    dplyr::group_by(ds_id, FDR_pct,db) %>%
-    dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
-                     pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
-    as.data.frame()
-  plot_data$Difference = plot_data$pred_fdr_per_ds - plot_data$msm_fdr_per_ds
-  plot_data$diff_sign = ifelse(plot_data$Difference < 0,-1,1)
-  plot_data$Difference = plot_data$diff_sign * log10(abs(plot_data$Difference) + 1)
-  plot_data = plot_data[which(plot_data$FDR_pct == as.character(FDR_pct)),]
-  x = plot_data %>%
-    group_by(ds_id) %>%
-    dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_per_ds),
-                     pred_fdr_per_ds = sum(pred_fdr_per_ds)) %>%
-    mutate(db = "All\ndatabases", Difference = (pred_fdr_per_ds - msm_fdr_per_ds),
-           FDR_pct = as.character(FDR_pct))
-  x$diff_sign = ifelse(x$Difference < 0,-1,1)
-  x$Difference = x$diff_sign * log10(abs(x$Difference) + 1)
-
-  x = x[,colnames(plot_data)] %>% as.data.frame()
-  x = x[!duplicated(x),]
-  plot_data = rbind.data.frame(x, plot_data)
-  plot_data$db = sub("-.*", "", plot_data$db)
-
-  y_break_range = c(floor(min(plot_data$Difference)),
-                    ceiling(max(plot_data$Difference)))
-
-  p = ggboxplot(plot_data, x = "db", y = "Difference", add = "jitter",
-            fill = "db", ggtheme = theme_pubr(),
-            add.params = list(alpha = 0.4, color = 'black', size = 1),
-            width = 0.9, palette = RColorBrewer::brewer.pal(length(unique(plot_data$db)),
-                                                            "Set2")) +
-    scale_y_continuous(breaks = seq(y_break_range[1], y_break_range[2], 1)) +
-    theme(axis.title = element_text(size = 18),
-          axis.text = element_text(size = 20),
-          legend.text = element_text(size = 18),
-          legend.title = element_blank())+
-    stat_summary(fun=mean, geom="errorbar", aes(ymax = ..y..,
-                                                ymin = ..y..), size = 1,
-                 linetype = "dashed") +
-    ylab("(+/-) Log 10 (Absolute Difference)") +
-    xlab("")
-  return(p)
-
-} #12x10 portrait
-make_data_fig_F = function(annot_df, y_axis_score = c("LFC", "LogDiff"), per_db = F){
-  plot_data = annot_df
-  plot_data = plot_data %>%
-    dplyr::select(group_name, FDR_pct, msm_fdr_annots, pred_fdr_annots, db) %>%
-    tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",")
-  if (per_db){
-    plot_data = plot_data %>%
-      dplyr::group_by(ds_id, FDR_pct,db) %>%
-      dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
-                       pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
-      as.data.frame()
-    plot_data$db = sub("-.*", "", plot_data$db)
-  }
-  else{
-    plot_data = plot_data %>%
-      dplyr::group_by(ds_id, FDR_pct) %>%
-      dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
-                       pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
-      as.data.frame()
-  }
-  plot_data$Difference = plot_data$pred_fdr_per_ds - plot_data$msm_fdr_per_ds
-  plot_data$diff_sign = ifelse(plot_data$Difference < 0,-1,1)
-  plot_data$LogDiff = plot_data$diff_sign * log10(abs(plot_data$Difference) + 1)
-
-  plot_data$FC = (plot_data$pred_fdr_per_ds + 1) / (plot_data$msm_fdr_per_ds + 1)
-  plot_data$LFC = log2(plot_data$FC)
-
-  y_break_range = c(floor(min(plot_data[,y_axis_score])),
-                    ceiling(max(plot_data[,y_axis_score])))
-
-  ggboxplot(plot_data, x = "FDR_pct", y = y_axis_score, add = ifelse(per_db, "none", "jitter"),
-            color = ifelse(per_db, "db", "FDR_pct"), ggtheme = theme_pubr(),size = 1,
-            add.params = ifelse(per_db, list(),
-                                list(alpha = 0.5, color = 'black', size = 1.25)),
-            width = 0.8, palette = RColorBrewer::brewer.pal(4, "Set2")) +
-    scale_y_continuous(breaks = seq(y_break_range[1], y_break_range[2], 1)) +
-    theme(axis.title = element_text(size = 18),
-          axis.text = element_text(size = 16),
-          legend.text = element_text(size = 18),
-          legend.title = element_blank()) +
-    ylab(ifelse(y_axis_score == "LFC",
-                "Log2 Fold Change",
-                "(+/-) Log 10 (Absolute Difference)"))
-
-} #10x8 portrait
-
-make_data_fig_G = function(raw_res, ds_id = "2021-03-22_15h30m15s", color_by_each_feat = F){
-  umap_data = prepare_data_umap(raw_res = raw_res, ds_id =ds_id )
-
-  umap_config = umap::umap.defaults
-  umap_config$n_neighbors = 20
-
-  x = modified_M3C_umap(mydata = umap_data$feature_mat, labels = as.factor(umap_data$labels), dotsize = 2, scale = 3,
-                        controlscale = T, colvec = c("#FBB4AE", "#33A02C"), legendtitle = "Ion type",
-                        umap_config = umap_config)
-
-  y = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$score_mat[row.names(umap_data$score_mat)=='MSM',]),
-                controlscale = TRUE,scale=1,legendtitle = 'MSM', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config) +
-    xlab("UMAP 1") +
-    ylab("UMAP 2")
-
-  z = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$score_mat[row.names(umap_data$score_mat)=='CatBoost',]),
-                controlscale = TRUE,scale=1,legendtitle = 'METASPACE-ML Score', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
-    xlab("UMAP 1") +
-    ylab("UMAP 2")
-
-  if (!color_by_each_feat){
-    return(list("Global_UMAPS" = list(x,y,z)))
-  }
-  else{
-    a = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='spectral',]),
-                  controlscale = TRUE,scale=1,legendtitle = 'spectral', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
-      xlab("UMAP 1") +
-      ylab("UMAP 2")
-    b = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='chaos',]),
-                  controlscale = TRUE,scale=1,legendtitle = 'chaos', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
-      xlab("UMAP 1") +
-      ylab("UMAP 2")
-    c = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='spatial',]),
-                  controlscale = TRUE,scale=1,legendtitle = 'spatial', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
-      xlab("UMAP 1") +
-      ylab("UMAP 2")
-    d = modified_M3C_umap(mydata = umap_data$feature_mat, labels= -log10(abs(as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='mz_err_abs',]))),
-                  controlscale = TRUE,scale=1,legendtitle = '-Log10\nmz error rel', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
-      xlab("UMAP 1") +
-      ylab("UMAP 2")
-    e = modified_M3C_umap(mydata = umap_data$feature_mat, labels= -log10(abs(as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='mz_err_rel',]))),
-                  controlscale = TRUE,scale=1,legendtitle = '-Log10\nmz error rel', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
-      xlab("UMAP 1") +
-      ylab("UMAP 2")
-    return(list("Global_UMAPS" = list(x,y,z),
-                "Feature_UMAPS" = list(a,b,c,d,e)))
-  }
-
-  #umap_compare_scores = cowplot::plot_grid(x,y,z)
-  return(umap_compare_scores)
-} #10x12 Landscape
-
-make_data_fig_H = function(annot_w_ions_df,intens_res_path,
-                           ds_id = "2021-03-22_15h30m15s"){
-  x = Get_intensity_dist_data(ds_id,annot_w_ions_df = annot_w_ions_df,
-                              intens_res_path = intens_res_path,fdr_pct = 0.1, intens_type = "q99_nz")
-  x$Group = sub(" .*", "", x$Group)
-  x$Group = str_replace_all(x$Group, c("ML" = "METASPACE-ML"))
-  x = x[!duplicated(x),]
-  p = ggbetweenstats(data = x, x =Group, y = total_intensity,
-                     type = "nonparametric",p.adjust.method = "BH",
-                     title = ds_id, xlab = "", ylab = "Log10(Intensity)",
-                     results.subtitle = F)
-  p + theme(plot.title = element_text(size=16, hjust = 0.5),
-            plot.subtitle = element_text(size=12, hjust = 0.5),
-            axis.title.y = element_text(size=18, hjust = 0.5),
-            axis.title.x = element_text(size=18, hjust = 0.5),
-            legend.text = element_text(size=16),
-            legend.title = element_blank(),
-            axis.text.x = element_text(size = 18),
-            axis.text.y = element_text(size = 18)) +
-    scale_color_manual(values = c("#A6CEE3","#A6CEE3","#FB9A99","#FB9A99"))
-} # US Legal landscape
-
-#Like in panel H
-make_data_fig_I = function(annot_df,eval_df, dss = NULL, return_stats_only = F){
-  create_upset_plot = function(train_ds_df, intersect_size = 10){
-    comb_mat_list = list()
-    for (context in names(train_ds_df)[-1]){
-      sets = unique(train_ds_df[,context])
-      for (set in sets){
-        comb_mat_list[[set]] = train_ds_df$ds_id[which(train_ds_df[,context] == set)]
-      }
-    }
-    m = make_comb_mat(comb_mat_list, mode = "intersect")
-    comb_sizes = comb_size(m)[comb_size(m) >= intersect_size]
-    comb_sets = lapply(comb_name(m), function(nm) extract_comb(m, nm))
-    comb_sets = comb_sets[lengths(comb_sets) >= intersect_size]
-    comb_sets = lapply(comb_sets, function(ds) {
-      ds$LFC = get_LFC_per_dataset(ds)
-      ds$diff = get_diff_per_dataset(ds)
-      ds$MAP = get_MAP_per_dataset(ds)
-      ds})
-    subgroup = c("DESI" = "Source",
-                 "IR-MALDESI" = "Source",
-                 "ESI" = "Source",
-                 "MALDI" = "Source",
-                 "Other source" = "Source",
-                 "Medium" = "Resolving power",
-                 "Low" = "Resolving power",
-                 "High" = "Resolving power",
-                 "Rat" = "Organism",
-                 "Mouse" = "Organism",
-                 "Human" = "Organism",
-                 "Other species" = "Organism"
-    )
-    colors = c("#A6CEE3", "#FB9A99", "#B2DF8A")
-    names(colors) = c("Source", "Resolving power", "Organism")
-
-    filt_m = m[comb_size(m) >= intersect_size]
-    highlight = comb_degree(filt_m)
-    highlight[which(substr(names(highlight),5,5) == "1")] = 1
-    highlight[which(substr(names(highlight),5,5) != "1")] = 2
-
-    highlight_cols = c("red", "black")[highlight]
-
-    upset_plot = UpSet(filt_m,
-                       comb_order = rev(order(comb_sizes)),
-                       comb_col = highlight_cols,
-                       top_annotation = upset_top_annotation(filt_m, add_numbers = TRUE),
-                       left_annotation = rowAnnotation(Context = subgroup[set_name(m)],
-                                                       show_annotation_name = FALSE, col = list("Context" = colors)),
-                       right_annotation = upset_right_annotation(filt_m),
-                       bottom_annotation = HeatmapAnnotation(
-                         # LFC = anno_boxplot(lapply(comb_sets, function(ds) ds$LFC), outline = FALSE),
-                         Log10_Difference = anno_boxplot(lapply(comb_sets, function(ds) ds$diff), outline = FALSE),
-                         median_diff = sapply(comb_sets, function(ds) median(ds$diff)),
-                         MAP = sapply(comb_sets, function(ds) unique(ds$MAP)),
-                         annotation_name_side = "left",col = list(
-                           "median_diff" = circlize::colorRamp2(seq(0,3,1),
-                                                                brewer.pal(4,"Blues")),
-                           "MAP" = circlize::colorRamp2(seq(0.1,0.9,0.1),
-                                                              brewer.pal(9,"Reds"))
-                         ),
-                         annotation_label = c("Log10\nDifference", "Median Difference",
-                                              "MAP")
-                       ))
-    return(upset_plot)
-  }
-  get_LFC_per_dataset = function(ds_ids){
-    LFC = c()
-    for (i in ds_ids){
-      LFC = c(LFC, LFC_annots$Delta[which(LFC_annots$ds_id == i)])
-    }
-    return(log2(LFC))
-  }
-  get_diff_per_dataset = function(ds_ids){
-    diff = c()
-    for (i in ds_ids){
-      diff = c(diff, LFC_annots$diff[which(LFC_annots$ds_id == i)])
-    }
-    return(diff)
-  }
-  get_MAP_per_dataset = function(ds_ids){
-    filtered = eval_df[which(eval_df$ds_id %in% ds_ids),] %>%
-      dplyr::filter(score_type == "METASPACE-ML")
-    filtered = filtered[!is.nan(filtered$metric_value),]
-    filtered = filtered[!is.na(filtered$metric_value),]
-    MAP = mean(filtered$metric_value)
-    return(MAP)
-  }
-  #debug(get_LFC_per_dataset)
-  metadata = read.csv("../Data/all_ds_Metaspace_metadata_July_6_2022.csv")
-  colnames(metadata)[1] = "ds_id"
-  metadata = metadata[,c(1,3,4,5,13)]
-  all_ds = dplyr::left_join(new_ds_testing, metadata)
-  testing_ds = all_ds %>% dplyr::select(ds_id, source, rp_range, Sample_Information.Organism, MS_Analysis.Ionisation_Source)
-  if (!is.null(dss)){
-    testing_ds = testing_ds[which(testing_ds$ds_id %in% dss),]
-  }
-  colnames(testing_ds)[which(colnames(testing_ds) == "Sample_Information.Organism")] = "Organism"
-  colnames(testing_ds)[which(colnames(testing_ds) == "MS_Analysis.Ionisation_Source")] = "orig_source"
-  testing_ds$source[which(testing_ds$source == "Other")] = testing_ds$orig_source[which(testing_ds$source == "Other")]
-  testing_ds$source = ifelse(testing_ds$source %in% c("MALDI","ESI", "IR-MALDESI"), testing_ds$source, "Other_source")
-  testing_ds = testing_ds %>% dplyr::select(-orig_source)
-  for (i in 1:nrow(testing_ds)){
-    if (testing_ds$Organism[i] %nin% c("Rattus norvegicus (rat)", "Mus musculus (mouse)","Homo sapiens (human)","Mouse ")){
-      next()
-    }
-    testing_ds$Organism[i] = switch(testing_ds$Organism[i],"Rattus norvegicus (rat)" = "Rat",
-                                    "Mus musculus (mouse)" = "Mouse",
-                                    "Homo sapiens (human)" = "Human",
-                                    "Mouse " = "Mouse",
-                                    "Homospaiens" = "Human",
-                                    "Mice" = "Mouse")
-  }
-  testing_ds$Organism = stringr::str_to_title(testing_ds$Organism)
-  testing_ds$Organism = ifelse(testing_ds$Organism %in% c("Mouse","Human","Rat"), testing_ds$Organism, "Other_species")
-  testing_ds = as.data.frame(testing_ds)
-
-  eval_df = eval_df %>% tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",")
-
-  LFC_annots = annot_df[which(annot_df$FDR_pct == "10"),] %>%
-    dplyr::select(-FDR_pct)
-  LFC_annots = LFC_annots[!duplicated(LFC_annots),]
-  LFC_annots = LFC_annots %>% tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",")
-  LFC_annots = LFC_annots %>% group_by(ds_id) %>%
-    summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
-              pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
-    as.data.frame()
-  LFC_annots$diff = LFC_annots$pred_fdr_per_ds - LFC_annots$msm_fdr_per_ds
-  LFC_annots$diff_sign = ifelse(LFC_annots$diff < 0,-1,1)
-  LFC_annots$diff = LFC_annots$diff_sign * log10(abs(LFC_annots$diff) + 1)
-
-  LFC_annots$Delta = LFC_annots$pred_fdr_per_ds / LFC_annots$msm_fdr_per_ds
-  LFC_annots$Delta[is.infinite(LFC_annots$Delta)] = 70
-  LFC_annots = LFC_annots[order(LFC_annots$Delta, decreasing = T),]
-  LFC_annots$ds_id = sub("_ml_training.*","",LFC_annots$ds_id)
-
-  testing_ds = testing_ds[which(testing_ds$ds_id %in% LFC_annots$ds_id),]
-  testing_ds$source = sub("_"," ",testing_ds$source)
-  testing_ds$rp_range = str_to_title(testing_ds$rp_range)
-  testing_ds$Organism = sub("_"," ",testing_ds$Organism)
-
-  stat_data = left_join(testing_ds, LFC_annots[,c("ds_id", "diff")])
-  stat_data$rp_grp = ifelse(stat_data$rp_range == "Low", "Low", "Medium-High")
-  stat_data = stat_data %>% dplyr::select(ds_id, rp_grp, diff)
-  stat_boxplot = ggbetweenstats(data = stat_data, x = rp_grp, y = diff,
-                                type = "nonparametric", p.adjust.method = "BH",
-                                package = "ggsci", palette = "default_jama", results.subtitle = F,
-                                centrality.plotting = T) +
-    theme(axis.text = element_text(size = 18),
-          axis.title = element_text(size = 20)) +
-    xlab("") +
-    ylab("Log10 Difference") +
-    geom_signif(comparisons = list(c("Low", "Medium-High")), map_signif_level = T, textsize = 8)
-
-
-  stat_data = stat_data %>% spread(key = rp_grp, value = diff)
-
-  low_diff = stat_data$Low[!is.na(stat_data$Low)]
-  not_low_diff = stat_data$`Not low`[!is.na(stat_data$`Not low`)]
-
-  stat_res = wilcox.test(low_diff, not_low_diff, alternative = "less", conf.int = T)
-
-  if (return_stats_only){
-    return(list("stat_res" = stat_res,
-                "stat_boxplot" = stat_boxplot))
-  }
-
-  p = create_upset_plot(train_ds_df = testing_ds, intersect_size = 10)
-  return(p)
-
-} #upset plot landscape 10x15
-make_data_fig_J = function(annot_w_ions_df,
-                           use_FE = T, min_dss_prop = 0.1){
-  all_ds_enrich_res_subclass = Run_enrichment_pipeline(annot_w_ions_df = annot_w_ions_df,
-                                                       pathway_rel_only = T,
-                                                       core_metabo_only = T)
-  plot_data = all_ds_enrich_res_subclass %>% filter(pval < 0.05, TP >= 3)
-  n_sig_dss = length(unique(plot_data$ds_id))
-  if (use_FE){
-    plot_data$OR = log2(plot_data$FE)
-  }
-  else{
-    plot_data$OR = log2(plot_data$OR)
-  }
-
-  filtered = plot_data %>% dplyr::group_by(term) %>% dplyr::summarise(n_ds = n(), avg_LOR = mean(OR))
-  filtered = filtered[which(filtered$n_ds >= ceiling(min_dss_prop * n_sig_dss)),]
-  filtered = filtered[which(filtered$term != ""),]
-  #filtered = filtered[which(abs(filtered$avg_LOR) >= 1),]
-
-  x = HMDB_taxo_info[which(HMDB_taxo_info$sub_class %in% filtered$term),]
-  x = x %>% dplyr::select(class, sub_class)
-  x = x[!duplicated(x),]
-  filtered = filtered %>% left_join(x, by = c("term" = "sub_class"))
-
-  plot_data = plot_data[which(plot_data$term %in% filtered$term),]
-  plot_data = plot_data %>%
-    left_join(filtered) %>%
-    select(term, class, ds_id, n_ds, OR)
-
-  plot_data = plot_data[order(plot_data$class),]
-
-  cols = RColorBrewer::brewer.pal(length(unique(plot_data$class)),"Paired")
-
-  plot_data$myaxis = paste0(plot_data$term, " (", plot_data$n_ds, "/",
-                            n_sig_dss,")")
-  group_ordered = with(plot_data, reorder(myaxis, OR, median))
-
-  plot_data$myaxis = factor(plot_data$myaxis, levels = levels(group_ordered))
-
-  p = plot_data %>%
-    ggplot(aes(x=myaxis, y=OR, fill=class)) +
-    # geom_violin(width=1.4) +
-    geom_boxplot(width= 1, alpha=0.6) +
-    # geom_jitter(size= 0.5, alpha=0.5) +
-    scale_fill_manual(values= cols) +
-    scale_y_continuous(n.breaks = 16) +
-    theme_pubr(legend = "bottom") +
-    theme(plot.title = element_text(size=18, hjust = 0.5),
-          plot.subtitle = element_text(size=16, hjust = 0.5),
-          axis.title.y = element_blank(),
-          axis.title.x = element_text(size=18, hjust = 0.5),
-          legend.text = element_text(size=18),
-          legend.title = element_text(size = 16),
-          axis.text.x = element_text(size = 18),
-          axis.text.y = element_text(size = 18)) +
-    coord_flip() +
-    geom_hline(yintercept =  0, linetype="dashed", color = "red") +
-    ggtitle("Enrichment of Metabolite classes",
-            subtitle = "Annotations only captured by METASPACE-ML") +
-    ylab("Log2 Fold Enrichment")
-
-  return(p)
-} # 10x19 landscape
-
-plot_enrich_res_global = function(enrich_result,use_FE = T, min_dss_prop = 0.1){
-  plot_data = enrich_result %>% dplyr::filter(pval < 0.05, TP >= 3)
-  n_sig_dss = length(unique(plot_data$ds_id))
-  if (use_FE){
-    plot_data$OR = log2(plot_data$FE)
-  }
-  else{
-    plot_data$OR = log2(plot_data$OR)
-  }
-
-  filtered = plot_data %>%
-    dplyr::group_by(term) %>%
-    dplyr::summarise(n_ds = n(), avg_LOR = mean(OR))
-  filtered = filtered[which(filtered$n_ds >= ceiling(min_dss_prop * n_sig_dss)),]
-  filtered = filtered[which(filtered$term != ""),]
-  #filtered = filtered[which(abs(filtered$avg_LOR) >= 1),]
-
-  x = HMDB_taxo_info[which(HMDB_taxo_info$sub_class %in% filtered$term),]
-  x = x %>% dplyr::select(class, sub_class)
-  x = x[!duplicated(x),]
-  filtered = filtered %>% left_join(x, by = c("term" = "sub_class"))
-
-  plot_data = plot_data[which(plot_data$term %in% filtered$term),]
-  plot_data = plot_data %>%
-    left_join(filtered) %>%
-    select(term, class, ds_id, n_ds, OR)
-
-  plot_data = plot_data[order(plot_data$class),]
-
-  cols = RColorBrewer::brewer.pal(length(unique(plot_data$class)),"Paired")
-
-  plot_data$myaxis = paste0(plot_data$term, " (", plot_data$n_ds, "/",
-                            n_sig_dss,")")
-  group_ordered = with(plot_data, reorder(myaxis, OR, median))
-
-  plot_data$myaxis = factor(plot_data$myaxis, levels = levels(group_ordered))
-
-  p = plot_data %>%
-    ggplot(aes(x=myaxis, y=OR, fill=class)) +
-    # geom_violin(width=1.4) +
-    geom_boxplot(width= 1, alpha=0.6) +
-    # geom_jitter(size= 0.5, alpha=0.5) +
-    scale_fill_manual(values= cols) +
-    scale_y_continuous(n.breaks = 16) +
-    theme_pubr(legend = "bottom") +
-    theme(plot.title = element_text(size=18, hjust = 0.5),
-          plot.subtitle = element_text(size=16, hjust = 0.5),
-          axis.title.y = element_blank(),
-          axis.title.x = element_text(size=18, hjust = 0.5),
-          legend.text = element_text(size=18),
-          legend.title = element_text(size = 16),
-          axis.text.x = element_text(size = 18),
-          axis.text.y = element_text(size = 18)) +
-    coord_flip() +
-    geom_hline(yintercept =  0, linetype="dashed", color = "red") +
-    ggtitle("Enrichment of Metabolite classes",
-            subtitle = "Annotations only captured by METASPACE-ML") +
-    ylab("Log2 Fold Enrichment")
-
-  return(p)
-}
 # Nat comms Data manipulation functions ----------------------------------------------
 prepare_plot_df = function(eval_df, annot_df,
                            data_type = c("Training", "Testing"),
@@ -1852,6 +1208,12 @@ color_column = "score_type", in_plot_text_size = 2) {
   }
 
   if (plot_type == "box") {
+    counts = df %>%
+      dplyr::group_by(.data[[x_column]]) %>%
+      dplyr::summarise(n=n())
+    n_labels = paste0(counts[[x_column]], "\n(n=", counts$n, ")")
+    names(n_labels) = counts[[x_column]]
+
     gg_base <- ggplot(
       data = df,
       aes(
@@ -1865,7 +1227,8 @@ color_column = "score_type", in_plot_text_size = 2) {
       geom_jitter(size = 0.5, alpha = 0.3, width = 0.1) +
       stat_summary(fun=mean, geom="errorbar", aes(ymax = ..y..,
                                                   ymin = ..y..), size = 1,
-                   linetype = "dashed", width = 0.5)
+                   linetype = "dashed", width = 0.5)+
+      scale_x_discrete(labels = n_labels)
   } else if (plot_type == "bar") {
     if("mz_class" %in% colnames(df)){
       base = ggplot(
@@ -2057,7 +1420,7 @@ subPlot <- function(plot_df, pol,
         legend.position = "none",
         plot.title = element_text(hjust = 0.5)
       ) +
-      stat_compare_means(paired = T, label = "p.signif", label.x = 1.5, label.y = 0.65)
+      stat_compare_means(paired = T, label = "p.format", label.x = 1.5, label.y = 0.65)
     p
 
   }
@@ -2952,6 +2315,12 @@ ggstats_wrapper = function(df, x_column, y_column,
     dplyr::mutate(groups = purrr::map2(group1, group2, function(x,y){c(x,y)})) %>%
     dplyr::mutate(p_astersik = sigFunc(p.value))
 
+  p_comparison$p_format = ifelse(p_comparison$p.value < 0.05,
+                                 format(p_comparison$p.value,
+                                        scientific = T,digits = 2),
+                                 round(p_comparison$p.value,2))
+  p_comparison$p_format = paste0("p=",  p_comparison$p_format)
+
   if (sig_only){
     p_comparison = p_comparison %>%
       dplyr::filter(p_astersik != "ns")
@@ -2965,7 +2334,7 @@ ggstats_wrapper = function(df, x_column, y_column,
   final_p = g + ggsignif::geom_signif(
     comparisons = p_comparison$groups,
     map_signif_level = T,
-    annotations = p_comparison$p_astersik,
+    annotations = p_comparison$p_format,
     test = NULL,
     y_position = ggstatsplot:::.ggsignif_xy(pull(df,.data[[x_column]])
                                             , pull(df,.data[[y_column]])),
@@ -3114,7 +2483,7 @@ Performance_plots_pipeline = function(eval_df, annot_df,
               legend.title = element_blank(),
               strip.text = element_text(size = 20),
               strip.background = element_rect(fill = "white")) +
-        stat_compare_means(aes(group = condition), label = "p.signif" ,paired = F,
+        stat_compare_means(aes(group = condition), label = "p.format" ,paired = F,
                            size = 8, label.x.npc = "center", label.y.npc = 0.95)
     }
     else{
@@ -3159,299 +2528,291 @@ Performance_plots_pipeline = function(eval_df, annot_df,
   return(p)
 }
 
-# old versions ------------------------------------------------------------
-old_make_data_fig_E = function(plot_type = c("per_ds", "density", "both")){
-  plot_data = all_param_optim_annot[which(all_param_optim_annot$includes_bad_rank == "No" &
-                                            all_param_optim_annot$ranking_type == "single" &
-                                            all_param_optim_annot$features_type == "Both" &
-                                            all_param_optim_annot$catmonotonic == "No"),] %>% dplyr::select(-includes_bad_rank,-ranking_type,
-                                                                                                            -features_type,-catmonotonic)
+# Older plotting functions ------------------------------------------------------------
+make_data_fig_D = function(eval_df_testing,model_param_comb = NULL,
+                           metric_type = c("MAP", "nDCG"), add_err_bar = T){
+  if (!is.null(model_param_comb)){
+    eval_df_testing = eval_df_testing %>% dplyr::filter(model_params == model_param_comb)
+  }
+  if (any(str_detect(colnames(eval_df_testing), "AP"))){
+    colnames(eval_df_testing)[str_which(colnames(eval_df_testing), "AP")] = "metric_value"
+  }
+  plot_data = eval_df_testing
+  colnames(plot_data)[which(colnames(plot_data) == "metric_value")] = "AP"
+  plot_data = plot_data[!is.nan(plot_data$AP),]
+  all_db = plot_data %>%
+    group_by(score_type) %>%
+    dplyr::summarise(metric_value = mean(AP),
+                     metric_val_sd = sd(AP)) %>%
+    dplyr::mutate(db = "All\ndatabases")
+  per_db = plot_data %>%
+    group_by(score_type, db) %>%
+    dplyr::summarise(metric_value = mean(AP),
+                     metric_val_sd = sd(AP))
+  plot_data = rbind.data.frame(all_db, per_db)
+  plot_data$db = sub("-.*", "", plot_data$db)
+  p = plot_eval_metrics_testing(df = plot_data, add_err_bar = add_err_bar)
+  return(p)
+} #12x10 portrait
+
+make_data_fig_E = function(annot_df, FDR_pct = 10){
+  plot_data = annot_df
   plot_data = plot_data %>%
-    dplyr::select(group_name, FDR_pct, msm_fdr_annots, pred_fdr_annots) %>%
+    dplyr::select(group_name, FDR_pct, msm_fdr_annots, pred_fdr_annots, db) %>%
     tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",") %>%
-    group_by(ds_id, FDR_pct) %>%
-    summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
-              pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
-    as.data.frame()
-  plot_data$Delta = plot_data$pred_fdr_per_ds / plot_data$msm_fdr_per_ds
-  plot_data$Delta[is.infinite(plot_data$Delta)] = max(plot_data$Delta[!is.infinite(plot_data$Delta)]) + 10
-  plot_data = plot_data[order(plot_data$Delta, decreasing = T),]
-  plot_data$FDR_pct = as.character(plot_data$FDR_pct)
-  #plot_data = plot_data[which(plot_data$FDR_pct == "5" ),]
-  plot_data$LFC = log2(plot_data$Delta)
-  plot_data$Delta_class = ifelse(plot_data$Delta > 1, "Higher", "Lower")
-  plot_data$Delta_class[which(plot_data$Delta == 1)] = "Equal"
-  plot_data = plot_data[order(plot_data$LFC,decreasing = F),]
-
-  new_data = plot_data %>% dplyr::select(ds_id, msm_fdr_per_ds, pred_fdr_per_ds, Delta,
-                                         LFC, Delta_class, FDR_pct)
-  new_data$diff = new_data$pred_fdr_per_ds - new_data$msm_fdr_per_ds
-  #new_data$point_col = ifelse(new_data$diff > 0, "darkgreen", "darkred")
-  #new_data$point_col[which(new_data$diff == 0)] = "blue"
-
-  new_data = new_data[order(new_data$diff, decreasing = F),]
-
-  p1 = ggplot(new_data[new_data$FDR_pct == "10",], aes(x=LFC, y=diff)) +
-    geom_segment(aes(x=LFC, xend=LFC, y=0, yend=diff, color=Delta_class),
-                 alpha=0.9, position = position_identity(),
-                 lineend = "round",linetype = "solid", size = 2) +
-    theme_pubr(legend = "right") +
-    scale_color_discrete(type = c("#FFFF99","#A6CEE3","#FB9A99")) +
-    theme(
-      panel.border = element_blank(),
-    ) +
-    scale_y_continuous(breaks = seq(-100, 2600, 100),limits = c(-100, 700)) +
-    scale_x_continuous(breaks = seq(-3, 7, 1)) +
-    theme(plot.title = element_text(size=18, hjust = 0.5),
-          plot.subtitle = element_text(size=16, hjust = 0.5),
-          axis.title.y = element_text(size=18, hjust = 0.5),
-          legend.text = element_text(size=16),
-          legend.title = element_blank(),
-          axis.text.x = element_text(size = 18),
-          axis.text.y = element_text(size = 18)) +
-    ggtitle('Number of annotations per dataset',subtitle = "FDR = 10%") +
-    xlab("Log2(Fold change number of annotations)") +
-    ylab("Difference in number of annotations")
-
-  p2 = ggplot(new_data[new_data$FDR_pct == "10",], aes(x=LFC, y=diff)) +
-    geom_hex(binwidth = c(0.25,50)) +
-    scale_y_continuous(breaks = seq(-50, 1000, 50),limits = c(-50, 700)) +
-    scale_x_continuous(breaks = seq(-3, 7, 1)) +
-    scale_fill_binned(type = "viridis", breaks = seq(0,40,5)) +
-    theme_pubr(legend = "right") +
-    theme(plot.title = element_text(size=18, hjust = 0.5),
-          plot.subtitle = element_text(size=16, hjust = 0.5),
-          axis.title.y = element_text(size=18, hjust = 0.5),
-          axis.title.x = element_text(size=18, hjust = 0.5),
-          legend.text = element_text(size=16),
-          legend.title = element_text(size = 16),
-          axis.text.x = element_text(size = 18),
-          axis.text.y = element_text(size = 18)) +
-    ggtitle('Density of added annotations across training datasets',
-            subtitle = "FDR = 10%") +
-    xlab("Log2(Fold change number of annotations)") +
-    ylab("Difference in number of annotations")
-  if (plot_type == "per_ds"){
-    return(p1)
-  }
-  else if (plot_type == "density"){
-    return(p2)
-  }
-  else{
-    return(cowplot::plot_grid(p1, p2, rel_widths = c(1,2)))
-  }
-} #10x8 portrait
-old_make_data_fig_F = function(plot_type = c("scatter", "boxplot")){
-  plot_data = all_param_optim_annot[which(all_param_optim_annot$includes_bad_rank == "No" &
-                                            all_param_optim_annot$ranking_type == "single" &
-                                            all_param_optim_annot$features_type == "Both" &
-                                            all_param_optim_annot$catmonotonic == "No"),]
-
-  plot_data = plot_data %>% dplyr::select(cv_split, group_name, FDR_pct, msm_fdr_annots, pred_fdr_annots)
-  plot_data = plot_data %>% tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",")
-  plot_data = plot_data %>% group_by(cv_split, ds_id, FDR_pct) %>%
+    dplyr::group_by(ds_id, FDR_pct,db) %>%
     dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
                      pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
     as.data.frame()
-  plot_data$Delta = plot_data$pred_fdr_per_ds / plot_data$msm_fdr_per_ds
-  plot_data$Delta[is.infinite(plot_data$Delta)] = 120
-  plot_data$LFC = log2(plot_data$Delta)
-  plot_data = plot_data[order(plot_data$Delta, decreasing = T),]
-  plot_data$FDR_pct = as.character(plot_data$FDR_pct)
+  plot_data$Difference = plot_data$pred_fdr_per_ds - plot_data$msm_fdr_per_ds
+  plot_data$diff_sign = ifelse(plot_data$Difference < 0,-1,1)
+  plot_data$Difference = plot_data$diff_sign * log10(abs(plot_data$Difference) + 1)
+  plot_data = plot_data[which(plot_data$FDR_pct == as.character(FDR_pct)),]
+  x = plot_data %>%
+    group_by(ds_id) %>%
+    dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_per_ds),
+                     pred_fdr_per_ds = sum(pred_fdr_per_ds)) %>%
+    mutate(db = "All\ndatabases", Difference = (pred_fdr_per_ds - msm_fdr_per_ds),
+           FDR_pct = as.character(FDR_pct))
+  x$diff_sign = ifelse(x$Difference < 0,-1,1)
+  x$Difference = x$diff_sign * log10(abs(x$Difference) + 1)
 
-  box_plot_data = plot_data %>% dplyr::select(-Delta, -cv_split, -LFC)
-  box_plot_data = box_plot_data %>% gather(key = "score_type", value = "score_value",
-                                           -ds_id, -FDR_pct)
-  box_plot_data$score_value = log10(box_plot_data$score_value + 1)
-  box_plot_data$score_type[which(box_plot_data$score_type == "msm_fdr_per_ds")] =
-    "MSM"
-  box_plot_data$score_type[which(box_plot_data$score_type == "pred_fdr_per_ds")] =
-    "METASPACE-ML"
+  x = x[,colnames(plot_data)] %>% as.data.frame()
+  x = x[!duplicated(x),]
+  plot_data = rbind.data.frame(x, plot_data)
+  plot_data$db = sub("-.*", "", plot_data$db)
 
-  p1 = ggboxplot(box_plot_data, ToothGrowth, x = "FDR_pct", y = "score_value",
-                 color = "score_type", palette = c("#A6CEE3", "#FB9A99"), add = "jitter") +
-    stat_compare_means(aes(group = score_type)) +
-    theme_pubr(legend = "right")  +
-    theme(plot.title = element_text(size=16, hjust = 0.5),
-          plot.subtitle = element_text(size=12, hjust = 0.5),
-          axis.title.y = element_text(size=18, hjust = 0.5),
-          axis.title.x = element_text(size=18, hjust = 0.5),
-          legend.text = element_text(size=16),
-          legend.title = element_blank(),
-          axis.text.x = element_text(size = 18),
-          axis.text.y = element_text(size = 18)) +
-    ggtitle('Distribution of number of annotations across FDR cutoffs',
-            subtitle = "Training datasets") +
-    xlab("FDR %") +
-    ylab("Log10(# annotations + 1)")
+  y_break_range = c(floor(min(plot_data$Difference)),
+                    ceiling(max(plot_data$Difference)))
 
+  counts = plot_data %>%
+    dplyr::group_by(db) %>%
+    dplyr::summarise(n=n())
+  n_labels <- paste0(counts[["db"]], "\n(n=", counts$n, ")")
+  names(n_labels) <- counts[["db"]]
 
-  scatter_data = plot_data %>% dplyr::select(-Delta, -cv_split, -LFC)
-  scatter_data$msm_fdr_per_ds = log10(scatter_data$msm_fdr_per_ds + 1)
-  scatter_data$pred_fdr_per_ds = log10(scatter_data$pred_fdr_per_ds + 1)
-  scatter_data$FDR_pct = factor(scatter_data$FDR_pct, levels = c("5","10",
-                                                                 "20","50"))
-  scatter_data$FDR_pct = paste0("FDR= ", scatter_data$FDR_pct, " %")
-  colnames(scatter_data)[c(3,4)] = c("MSM", "METASPACE-ML")
+  p = ggboxplot(plot_data, x = "db", y = "Difference", add = "jitter",
+                fill = "db", ggtheme = theme_pubr(),
+                add.params = list(alpha = 0.4, color = 'black', size = 1),
+                width = 0.9, palette = RColorBrewer::brewer.pal(length(unique(plot_data$db)),
+                                                                "Set2")) +
+    scale_y_continuous(breaks = seq(y_break_range[1], y_break_range[2], 1)) +
+    theme(axis.title = element_text(size = 18),
+          axis.text = element_text(size = 20),
+          legend.text = element_text(size = 18),
+          legend.title = element_blank())+
+    stat_summary(fun=mean, geom="errorbar", aes(ymax = ..y..,
+                                                ymin = ..y..), size = 1,
+                 linetype = "dashed") +
+    ylab("(+/-) Log 10 (Absolute Difference)") +
+    xlab("") +
+    scale_x_discrete(labels = n_labels)
+  return(p)
 
-  p2 = ggscatter(data = scatter_data,x = "MSM", y = "METASPACE-ML", conf.int = T,
-                 palette = c("#1F78B4", "#33A02C","#CAB2D6", "#FB9A99"), color = "FDR_pct",
-                 title = "Correlation of annotation numbers across FDR cutoffs",
-                 short.panel.labs = F) +
-    stat_cor(aes(), label.x = 0) +
-    geom_abline() +
-    theme_pubr(legend = "right") +
-    theme(plot.title = element_text(size=18, hjust = 0.5),
-          plot.subtitle = element_text(size=16, hjust = 0.5),
-          axis.title.y = element_text(size=18, hjust = 0.5),
-          axis.title.x = element_text(size=18, hjust = 0.5),
-          legend.text = element_text(size=16),
-          legend.position = "none",
-          axis.text.x = element_text(size = 18),
-          axis.text.y = element_text(size = 18),
-          strip.text = element_text(size = 16))+
-    facet_wrap(~FDR_pct, scales = "free")
-
-  if (plot_type == "scatter"){
-    return(p2)
+} #12x10 portrait
+make_data_fig_F = function(annot_df, y_axis_score = c("LFC", "LogDiff"), per_db = T){
+  plot_data = annot_df
+  plot_data = plot_data %>%
+    dplyr::select(group_name, FDR_pct, msm_fdr_annots, pred_fdr_annots, db) %>%
+    tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",")
+  if (per_db){
+    plot_data = plot_data %>%
+      dplyr::group_by(ds_id, FDR_pct,db) %>%
+      dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
+                       pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
+      as.data.frame()
+    plot_data$db = sub("-.*", "", plot_data$db)
   }
   else{
-    return(p1)
+    plot_data = plot_data %>%
+      dplyr::group_by(ds_id, FDR_pct) %>%
+      dplyr::summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
+                       pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
+      as.data.frame()
   }
-} #12x10 portrait
-old_make_data_fig_D = function(metric_type = c("MAP", "nDCG")){
-  plot_data = testing_param_optim_eval
-  p = plot_eval_metrics_testing(df = plot_data, metric_type = metric_type)
-  return(p)
-} #12x10 portrait
-old_plot_eval_metrics_testing = function(df, metric_type = c("MAP", "nDCG")){
-  df = df %>% dplyr::select(db, metric_type, metric_value, score_type)
-  df = df[which(df$metric_type == metric_type),]
-  bp = ggplot(df, aes(x=db, y=metric_value, fill=score_type)) +
-    geom_bar(stat = "identity", position = position_dodge2(width = 0.2, padding = 0),
-             alpha = 1, width = 0.5) +
-    scale_fill_discrete(type = c("#A6CEE3", "#FB9A99")) +
-    theme_pubr(legend = "right") +
-    theme(plot.title = element_text(size=16, hjust = 0.5),
-          plot.subtitle = element_text(size=12, hjust = 0.5),
-          axis.title.y = element_text(size=18, hjust = 0.5),
+  plot_data$Difference = plot_data$pred_fdr_per_ds - plot_data$msm_fdr_per_ds
+  plot_data$diff_sign = ifelse(plot_data$Difference < 0,-1,1)
+  plot_data$LogDiff = plot_data$diff_sign * log10(abs(plot_data$Difference) + 1)
+
+  plot_data$FC = (plot_data$pred_fdr_per_ds + 1) / (plot_data$msm_fdr_per_ds + 1)
+  plot_data$LFC = log2(plot_data$FC)
+
+  y_break_range = c(floor(min(plot_data[,y_axis_score])),
+                    ceiling(max(plot_data[,y_axis_score])))
+
+  counts = plot_data %>%
+    dplyr::group_by(db) %>%
+    dplyr::summarise(n=n())
+  n_labels <- paste0(counts[["db"]], "\n(n=", counts$n, ")")
+  names(n_labels) <- counts[["db"]]
+
+  plot_data[["db"]] = n_labels
+
+  ggboxplot(plot_data, x = "FDR_pct", y = y_axis_score, add = ifelse(per_db, "none", "jitter"),
+            color = ifelse(per_db, "db", "FDR_pct"), ggtheme = theme_pubr(),size = 1,
+            add.params = ifelse(per_db, list(),
+                                list(alpha = 0.5, color = 'black', size = 1.25)),
+            width = 0.8, palette = RColorBrewer::brewer.pal(4, "Set2")) +
+    scale_y_continuous(breaks = seq(y_break_range[1], y_break_range[2], 1)) +
+    theme(axis.title = element_text(size = 18),
+          axis.text = element_text(size = 16),
+          legend.text = element_text(size = 18),
+          legend.title = element_blank()) +
+    ylab(ifelse(y_axis_score == "LFC",
+                "Log2 Fold Change",
+                "(+/-) Log 10 (Absolute Difference)"))
+
+} #10x8 portrait
+
+make_data_fig_G = function(raw_res, ds_id = "2021-03-22_15h30m15s", color_by_each_feat = F){
+  umap_data = prepare_data_umap(raw_res = raw_res, ds_id =ds_id )
+
+  umap_config = umap::umap.defaults
+  umap_config$n_neighbors = 20
+
+  x = modified_M3C_umap(mydata = umap_data$feature_mat, labels = as.factor(umap_data$labels), dotsize = 2, scale = 3,
+                        controlscale = T, colvec = c("#FBB4AE", "#33A02C"), legendtitle = "Ion type",
+                        umap_config = umap_config)
+
+  y = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$score_mat[row.names(umap_data$score_mat)=='MSM',]),
+                        controlscale = TRUE,scale=1,legendtitle = 'MSM', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config) +
+    xlab("UMAP 1") +
+    ylab("UMAP 2")
+
+  z = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$score_mat[row.names(umap_data$score_mat)=='CatBoost',]),
+                        controlscale = TRUE,scale=1,legendtitle = 'METASPACE-ML Score', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
+    xlab("UMAP 1") +
+    ylab("UMAP 2")
+
+  if (!color_by_each_feat){
+    return(list("Global_UMAPS" = list(x,y,z)))
+  }
+  else{
+    a = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='spectral',]),
+                          controlscale = TRUE,scale=1,legendtitle = 'spectral', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
+      xlab("UMAP 1") +
+      ylab("UMAP 2")
+    b = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='chaos',]),
+                          controlscale = TRUE,scale=1,legendtitle = 'chaos', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
+      xlab("UMAP 1") +
+      ylab("UMAP 2")
+    c = modified_M3C_umap(mydata = umap_data$feature_mat, labels=as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='spatial',]),
+                          controlscale = TRUE,scale=1,legendtitle = 'spatial', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
+      xlab("UMAP 1") +
+      ylab("UMAP 2")
+    d = modified_M3C_umap(mydata = umap_data$feature_mat, labels= -log10(abs(as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='mz_err_abs',]))),
+                          controlscale = TRUE,scale=1,legendtitle = '-Log10\nmz error rel', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
+      xlab("UMAP 1") +
+      ylab("UMAP 2")
+    e = modified_M3C_umap(mydata = umap_data$feature_mat, labels= -log10(abs(as.numeric(umap_data$feature_mat[row.names(umap_data$feature_mat)=='mz_err_rel',]))),
+                          controlscale = TRUE,scale=1,legendtitle = '-Log10\nmz error rel', low = "#450958", high = "#FAE726", dotsize = 2,umap_config = umap_config)+
+      xlab("UMAP 1") +
+      ylab("UMAP 2")
+    return(list("Global_UMAPS" = list(x,y,z),
+                "Feature_UMAPS" = list(a,b,c,d,e)))
+  }
+
+  #umap_compare_scores = cowplot::plot_grid(x,y,z)
+  return(umap_compare_scores)
+} #10x12 Landscape
+
+#AP boxplot testing different databases
+make_figure_S8 = function(eval_df,model_param_comb = NULL,
+                          metric_type = "MAP"){
+  if (!is.null(model_param_comb)){
+    eval_df = eval_df %>% dplyr::filter(model_params == model_param_comb)
+  }
+
+  plot_data = eval_df
+  plot_data = plot_data %>%
+    tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",") %>%
+    dplyr::group_by(ds_id, model_params,score_type,db) %>%
+    dplyr::summarise(metric_value = mean(metric_value)) %>%
+    as.data.frame() %>%
+    dplyr::select(db, score_type, metric_value)
+  plot_data$db = sub("-.*", "", plot_data$db)
+
+  counts = plot_data %>%
+    dplyr::group_by(db) %>%
+    dplyr::summarise(n=n())
+  n_labels <- paste0(counts[["db"]], "\n(n=", counts$n, ")")
+  names(n_labels) <- counts[["db"]]
+
+  p = ggplot(plot_data, aes(x=db, y=metric_value, color=score_type)) +
+    geom_boxplot(outlier.shape = NA, size = 1.25) +
+    scale_color_manual(values = c("#A6CEE3", "#FB9A99"))+
+    geom_point(position=position_jitterdodge(dodge.width = 1)) +
+    theme_pubr(legend = "bottom") +
+    theme(axis.title.y = element_text(size=18, hjust = 0.5),
           legend.text = element_text(size=16),
           legend.title = element_blank(),
           axis.text.x = element_text(size = 18),
           axis.text.y = element_text(size = 18)) +
-    ggtitle('Database comparison',subtitle = "Mean average precision")+
+    scale_y_continuous(breaks = seq(0,1,0.1)) +
+    scale_x_discrete(labels = n_labels) +
     xlab("") +
-    ylab(metric_type)
-  return(bp)
-}
-old_make_figure_S1 = function(){
-  create_upset_plot = function(train_ds_df, intersect_size = 10){
-    comb_mat_list = list()
-    for (context in names(train_ds_df)[-1]){
-      sets = unique(train_ds_df[,context])
-      for (set in sets){
-        comb_mat_list[[set]] = train_ds_df$ds_id[which(train_ds_df[,context] == set)]
-      }
-    }
-    m = make_comb_mat(comb_mat_list, mode = "intersect")
-    comb_sizes = comb_size(m)[comb_size(m) >= intersect_size]
-    comb_sets = lapply(comb_name(m), function(nm) extract_comb(m, nm))
-    comb_sets = comb_sets[lengths(comb_sets) >= intersect_size]
-    comb_sets = lapply(comb_sets, function(ds) {
-      ds$LFC = get_LFC_per_dataset(ds)
-      ds$diff = get_diff_per_dataset(ds)
-      ds})
-    subgroup = c("DESI" = "Source",
-                 "MALDI" = "Source",
-                 "Other_source" = "Source",
-                 "medium" = "RP_range",
-                 "low" = "RP_range",
-                 "high" = "RP_range",
-                 "Rat" = "Organism",
-                 "Mouse" = "Organism",
-                 "Human" = "Organism",
-                 "Other_species" = "Organism"
-    )
-    colors = c("#A6CEE3", "#FB9A99", "#B2DF8A")
-    names(colors) = c("Source", "RP_range", "Organism")
-
-    filt_m = m[comb_size(m) >= intersect_size]
-    highlight = comb_degree(filt_m)
-    highlight[which(substr(names(highlight),5,5) == "1")] = 1
-    highlight[which(substr(names(highlight),5,5) != "1")] = 2
-
-    highlight_cols = c("red", "black")[highlight]
-
-    upset_plot = UpSet(filt_m,
-                       comb_order = rev(order(comb_sizes)),
-                       comb_col = highlight_cols,
-                       top_annotation = upset_top_annotation(filt_m, add_numbers = TRUE),
-                       left_annotation = rowAnnotation(Context = subgroup[set_name(m)],
-                                                       show_annotation_name = FALSE, col = list("Context" = colors)),
-                       right_annotation = upset_right_annotation(filt_m),
-                       bottom_annotation = HeatmapAnnotation(
-                         LFC = anno_boxplot(lapply(comb_sets, function(ds) ds$LFC), outline = FALSE),
-                         Diff = anno_boxplot(lapply(comb_sets, function(ds) ds$diff), outline = FALSE),
-                         median_diff = sapply(comb_sets, function(ds) median(ds$diff)),
-                         # mean_diff = sapply(comb_sets, function(ds) mean(ds$diff)),
-                         annotation_name_side = "left"
-                       ))
-    return(upset_plot)
-  }
-  get_LFC_per_dataset = function(ds_ids){
-    LFC = c()
-    for (i in ds_ids){
-      LFC = c(LFC, LFC_annots$Delta[which(LFC_annots$ds_id == i)])
-    }
-    return(log2(LFC))
-  }
-  get_diff_per_dataset = function(ds_ids){
-    diff = c()
-    for (i in ds_ids){
-      diff = c(diff, LFC_annots$diff[which(LFC_annots$ds_id == i)])
-    }
-    return(diff)
-  }
-  metadata = read.csv("../Data/all_ds_Metaspace_metadata_July_6_2022.csv")
-  colnames(metadata)[1] = "ds_id"
-  metadata = metadata[,c(1,3,4,5)]
-  all_ds = dplyr::left_join(datasets, metadata)
-  train_ds = all_ds[which(all_ds$top200 == "TRUE"),]
-  train_ds = train_ds %>% dplyr::select(ds_id, source, rp_range, Sample_Information.Organism)
-  colnames(train_ds)[which(colnames(train_ds) == "Sample_Information.Organism")] = "Organism"
-  train_ds$source = ifelse(train_ds$source %in% c("MALDI","DESI"), train_ds$source, "Other_source")
-  for (i in 1:nrow(train_ds)){
-    if (train_ds$Organism[i] %nin% c("Rattus norvegicus (rat)", "Mus musculus (mouse)","Homo sapiens (human)","Mouse ")){
-      next()
-    }
-    train_ds$Organism[i] = switch(train_ds$Organism[i],"Rattus norvegicus (rat)" = "Rat",
-                                  "Mus musculus (mouse)" = "Mouse",
-                                  "Homo sapiens (human)" = "Human",
-                                  "Mouse " = "Mouse")
-  }
-  train_ds$Organism = ifelse(train_ds$Organism %in% c("Mouse","Human","Rat"), train_ds$Organism, "Other_species")
-  train_ds = as.data.frame(train_ds)
-
-  LFC_annots = all_param_optim_annot[which(all_param_optim_annot$includes_bad_rank == "No" &
-                                             all_param_optim_annot$ranking_type == "single" &
-                                             all_param_optim_annot$features_type == "Both" &
-                                             all_param_optim_annot$catmonotonic == "No" &
-                                             all_param_optim_annot$FDR_pct == 10),] %>%
-    dplyr::select(-includes_bad_rank,-ranking_type,-features_type,-catmonotonic,-FDR_pct, -cv_split)
-  LFC_annots = LFC_annots[!duplicated(LFC_annots),]
-  LFC_annots = LFC_annots %>% tidyr::separate(group_name, into = c("ds_id", "adduct"), sep = ",")
-  LFC_annots = LFC_annots %>% group_by(ds_id) %>%
-    summarise(msm_fdr_per_ds = sum(msm_fdr_annots),
-              pred_fdr_per_ds = sum(pred_fdr_annots)) %>%
-    as.data.frame()
-  LFC_annots$diff = LFC_annots$pred_fdr_per_ds - LFC_annots$msm_fdr_per_ds
-  LFC_annots$Delta = LFC_annots$pred_fdr_per_ds / LFC_annots$msm_fdr_per_ds
-  LFC_annots$Delta[is.infinite(LFC_annots$Delta)] = 120
-  LFC_annots = LFC_annots[order(LFC_annots$Delta, decreasing = T),]
-
-  p = create_upset_plot(train_ds_df = train_ds, intersect_size = 5)
+    ylab("MAP")
   return(p)
+}
 
-} #upset plot landscape 10x15
+plot_enrich_res_global = function(enrich_result,use_FE = T, min_dss_prop = 0.1){
+  plot_data = enrich_result %>% dplyr::filter(pval < 0.05, TP >= 3)
+  n_sig_dss = length(unique(plot_data$ds_id))
+  if (use_FE){
+    plot_data$OR = log2(plot_data$FE)
+  }
+  else{
+    plot_data$OR = log2(plot_data$OR)
+  }
 
+  filtered = plot_data %>%
+    dplyr::group_by(term) %>%
+    dplyr::summarise(n_ds = n(), avg_LOR = mean(OR))
+  filtered = filtered[which(filtered$n_ds >= ceiling(min_dss_prop * n_sig_dss)),]
+  filtered = filtered[which(filtered$term != ""),]
+  #filtered = filtered[which(abs(filtered$avg_LOR) >= 1),]
 
+  x = HMDB_taxo_info[which(HMDB_taxo_info$sub_class %in% filtered$term),]
+  x = x %>% dplyr::select(class, sub_class)
+  x = x[!duplicated(x),]
+  filtered = filtered %>% left_join(x, by = c("term" = "sub_class"))
+
+  plot_data = plot_data[which(plot_data$term %in% filtered$term),]
+  plot_data = plot_data %>%
+    left_join(filtered) %>%
+    select(term, class, ds_id, n_ds, OR)
+
+  plot_data = plot_data[order(plot_data$class),]
+
+  cols = RColorBrewer::brewer.pal(length(unique(plot_data$class)),"Paired")
+
+  plot_data$myaxis = paste0(plot_data$term, " (", plot_data$n_ds, "/",
+                            n_sig_dss,")")
+  group_ordered = with(plot_data, reorder(myaxis, OR, median))
+
+  plot_data$myaxis = factor(plot_data$myaxis, levels = levels(group_ordered))
+
+  p = plot_data %>%
+    ggplot(aes(x=myaxis, y=OR, fill=class)) +
+    # geom_violin(width=1.4) +
+    geom_boxplot(width= 1, alpha=0.6) +
+    # geom_jitter(size= 0.5, alpha=0.5) +
+    scale_fill_manual(values= cols) +
+    scale_y_continuous(n.breaks = 16) +
+    theme_pubr(legend = "bottom") +
+    theme(plot.title = element_text(size=18, hjust = 0.5),
+          plot.subtitle = element_text(size=16, hjust = 0.5),
+          axis.title.y = element_blank(),
+          axis.title.x = element_text(size=18, hjust = 0.5),
+          legend.text = element_text(size=18),
+          legend.title = element_text(size = 16),
+          axis.text.x = element_text(size = 18),
+          axis.text.y = element_text(size = 18)) +
+    coord_flip() +
+    geom_hline(yintercept =  0, linetype="dashed", color = "red") +
+    ggtitle("Enrichment of Metabolite classes",
+            subtitle = "Annotations only captured by METASPACE-ML") +
+    ylab("Log2 Fold Enrichment")
+
+  return(p)
+}
