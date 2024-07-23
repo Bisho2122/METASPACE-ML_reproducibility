@@ -13,7 +13,6 @@ library(rstatix)
 library(ggbiplot)
 
 source("../Scripts/Final_figures_functions.R")
-source("../Scripts/Supp_figures_functions.R")
 "%nin%" <- Negate("%in%")
 
 
